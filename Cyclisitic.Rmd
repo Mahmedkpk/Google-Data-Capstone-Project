@@ -1,0 +1,481 @@
+---
+title: "Cyclistic Member vs Casual Rider Useage Pattern"
+author: "Muhammad Ahmed"
+date: "3rd of October 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This project was undertaken as part of the Google Professional Certification, Introduction to Data Analytics. Let's dive in!
+
+## Introduction
+Initially I had thought to clean data in SQL and then use Tableau for graphics,
+however, due to the limits in BigQuery and Tableau Public, I decided to use R
+
+## Background
+I am a junior data analyst working on the marketing analyst team at Cyclistic, a bike-share company in Chicago. The director of marketing believes the company’s future success depends on maximizing the number of annual memberships. Therefore, my team wants to understand how casual riders and annual members use Cyclistic bikes differently. From theseinsights, my team will design a new marketing strategy to convert casual riders into annual members. But first, Cyclistic executives must approve your recommendations, so they must be backed up with compelling data insights and professional data visualizations
+
+## ASK
+In this regards, the marketing department is tasked with 3 questions to answer
+*How do annual members and casual riders use Cyclistic bikes differently?
+*Why would casual riders buy Cyclistic annual memberships?
+*How can Cyclistic use digital media to influence casual riders to become members?
+
+I am assigned a task my the marketing department director(Lily Moreno) : How do annual members and casual riders use Cyclistic bikes differently?
+
+## Prepare DATA
+
+### Loading necessary libraries
+```{r loads necessary libraries}
+library(tidyverse)
+library(janitor)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+```
+
+### Loading Files
+
+Once libraries have been loaded, it is time to upload the CSV files with data in it. Each month has been assigned a number(M). The data is from 2024-06 onwards. Once uploaded, all data frames are combined into a single data frame with the name of bike_rides. We also check the dimensions of this new data frame
+
+```{r loading files}
+###Working directory was set from GUI, this was to confirm
+getwd()
+
+###Read CSV Function for importing files, each month assigned as M(number)
+###Latest data first, 202406 and onwards had time in different format
+M1 <- read.csv('202405-divvy-tripdata.csv', header=TRUE)
+M2 <- read.csv('202404-divvy-tripdata.csv', header=TRUE)
+M3 <- read.csv('202403-divvy-tripdata.csv', header=TRUE)
+M4 <- read.csv('202402-divvy-tripdata.csv', header=TRUE)
+M5 <- read.csv('202401-divvy-tripdata.csv', header=TRUE)
+M6 <- read.csv('202312-divvy-tripdata.csv', header=TRUE)
+M7 <- read.csv('202311-divvy-tripdata.csv', header=TRUE)
+M8 <- read.csv('202310-divvy-tripdata.csv', header=TRUE)
+M9 <- read.csv('202309-divvy-tripdata.csv', header=TRUE)
+M10 <- read.csv('202308-divvy-tripdata.csv', header=TRUE)
+M11 <- read.csv('202307-divvy-tripdata.csv', header=TRUE)
+M12 <- read.csv('202306-divvy-tripdata.csv', header=TRUE)
+
+####Now this might not be an efficient method but for now, this is how I did it
+
+###Combined all data frames into one for analysis
+bike_rides <- rbind(M1,M2,M3,M4,M5,M6,M7,M8,M9,M10,M11,M12)
+
+###Checking the dimensions of this whole thing
+dim(bike_rides)
+```
+
+### Cleaning Data
+
+The following code is run to clean data. First, empty columns and rows are removed.
+
+The start and end times are converted into the ymd_hms format (for calculations). The difftime function is used to calculate the time difference. To ensure that data is upto standards, we remove non finite values as well as values below 1 minute (negative and start stops) as well as longer than a day (user forgot to turn off bike etc.)
+
+We also removed the data where start and end stations are missing.
+
+We also extract the months and days from the data (as we will be using this further) and assign them to a new column of month and day respectively. In the end, all the processed and clean data is shifted into a new data frame bike_rides_clean.
+
+```{r cleaning data}
+###This part removes empty columns and rows
+bike_rides <- janitor::remove_empty(bike_rides,which=c("cols"))
+bike_rides <- janitor::remove_empty(bike_rides,which=c("rows"))
+
+###Converting Data/Time from chr to Date/Time format and assigning new columns
+bike_rides$start_time <- lubridate::ymd_hms(bike_rides$started_at)
+bike_rides$end_time <- lubridate::ymd_hms(bike_rides$ended_at)
+
+###Calculating the difference in time
+bike_rides$ride_time <- difftime(bike_rides$end_time,bike_rides$start_time,units="mins")
+
+###Remove rows where ride_time has non-finite values (NA, NaN, Inf)
+bike_rides_clean <- bike_rides %>%
+  filter(is.finite(ride_time))
+
+###Ensure the ride_time column is numeric (difftime can sometimes cause issues with plotting)
+bike_rides$ride_time <- as.numeric(bike_rides$ride_time)
+
+bike_rides <- bike_rides %>%
+  filter(!is.na(start_station_name) & start_station_name != "",
+         !is.na(end_station_name) & end_station_name != "")
+
+###Removing Bike Rides less than a minute and more than a day
+bike_rides_clean <- bike_rides %>%
+  filter(ride_time >= 1 & ride_time <= 1440)
+
+###Check the summary to understand the range of ride_time
+summary(bike_rides_clean$ride_time)
+
+###Month and Year extracted from start time for analysis
+bike_rides_clean$ride_month <- format(bike_rides_clean$start_time, "%Y-%m")
+###Extract the day of the week from the start time
+bike_rides_clean$day_of_week <- wday(bike_rides_clean$start_time, label = TRUE, abbr = FALSE) 
+
+###Checking Dimensions again to see if any empty rows or columns were removed
+dim(bike_rides_clean)
+
+###Count the number of rides per month for each user type
+rides_per_month <- bike_rides_clean %>%
+  group_by(ride_month, member_casual) %>%
+  summarise(total_rides = n()) %>%
+  ungroup()
+
+```
+
+
+## Analyzing the DATA
+
+### Daily Rides Breakdown
+
+This chunk of code is used to count the number of rides per day of the week for each user type
+```{r}
+rides_per_day <- bike_rides_clean %>%
+  group_by(day_of_week, member_casual) %>%
+  summarise(total_rides = n()) %>%
+  ungroup()
+```
+View the result
+```{r}
+print(rides_per_day)
+```
+This chunk of code gives the plot for the the number of rides per day of the week for each user type
+```{r Daily Rides Breakdown, echo=FALSE}
+color_palette <- c("member" = "#CE5757", "casual" = "#99CCFF")  # Pastel red and blue
+ggplot(rides_per_day, aes(x = day_of_week, y = total_rides, fill = member_casual)) +
+  geom_bar(stat = "identity", position = "dodge") +  ####Dodged bar plot for better comparison
+  labs(title = "Number of Rides per Day of the Week by User Type",
+       x = "Day of the Week",
+       y = "Total Rides") +
+  scale_fill_manual(values = color_palette) + 
+  theme_minimal()
+```
+
+### Monthly Breakdown - Riders Type
+
+```{r Monthly Breakdown - Riders Type}
+###View result
+print(rides_per_month)
+
+###Define pastel colors for types of users
+color_palettes <- c("member" = "#CE5760", "casual" = "#99CCFF")  # Pastel red and blue
+
+```
+The results are as follows:
+```{r Monthly Breakdown by Riders Type, echo=FALSE}
+###Plot the number of rides per month for each user type
+ggplot(rides_per_month, aes(x = ride_month, y = total_rides, fill = member_casual)) +
+  geom_bar(stat = "identity", position = "dodge") + 
+  labs(title = "Number of Rides per Month by User Type",
+       x = "Month",
+       y = "Total Rides") +
+  scale_fill_manual(values = color_palettes) +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Time spent riding bikes by user type
+```{r Ride Time, echo=FALSE}
+ggplot(bike_rides_clean, aes(x = ride_time, fill = member_casual)) +
+  geom_histogram(binwidth = 5, position = "stack", color = "black") +
+  labs(title = "Distribution of Ride Times by Membership Type",
+       x = "Ride Time (minutes)",
+       y = "Frequency") +
+  xlim(0, quantile(bike_rides$ride_time, 0.97)) +  ####Set limits to exclude outliers beyond 97th percentile
+  scale_fill_manual(values = color_palette) + 
+  theme_minimal()
+```
+
+### Bike Ridership at different hours of the day
+
+Extract the hour of the start time for analysis
+```{r Hour of Day}
+bike_rides_clean$start_hour <- hour(bike_rides_clean$start_time)
+```
+Data Plot
+```{r Hour of day, echo=FALSE}
+###Plot the stacked histogram by start time (hour)
+ggplot(bike_rides_clean, aes(x = start_hour, fill = member_casual)) +
+  geom_histogram(binwidth = 1, position = "stack", color = "black") +  
+  labs(title = "Ride Start Times by Membership Type",
+       x = "Hour of the Day",
+       y = "Frequency") +
+  scale_y_continuous(labels = scales::label_number()) +  
+  scale_x_continuous(breaks = 0:23, limits = c(0, 24)) + 
+  scale_fill_manual(values = color_palette) + 
+  theme_minimal()
+```
+
+### Most Frequented Stations by user type
+The following code is used to differentiate the most used start and stop stations, filtered by month and user type
+```{r}
+
+###Group by month, user type, and start station, count rides
+most_used_start_stations <- bike_rides_clean %>%
+  group_by(ride_month, member_casual, start_station_name) %>%
+  summarise(total_rides = n()) %>%
+  arrange(ride_month, member_casual, desc(total_rides)) %>%
+  group_by(ride_month, member_casual) %>%
+  slice_max(total_rides, n = 5)  ####Top 5 stations
+
+###Group by month, user type, and end station, count rides
+most_used_end_stations <- bike_rides_clean %>%
+  group_by(ride_month, member_casual, end_station_name) %>%
+  summarise(total_rides = n()) %>%
+  arrange(ride_month, member_casual, desc(total_rides)) %>%
+  group_by(ride_month, member_casual) %>%
+  slice_max(total_rides, n = 5)  ####Top 5 stations
+
+# Define 11 pastel blue colors
+pastel_blue_colors <- c(
+  "#A3C1DA", "#A0C4E1", "#A8D5E2", "#B7E1E5", "#C6E4E7",
+  "#B2D9E4", "#9EC9E5", "#8FB7D3", "#77A6C8", "#3F87A6",
+  "#0A9AC3", "#0A8AD3", "#016CC3", "#024CC3", "#011CC1"
+)
+
+### Start station plot for casual riders with horizontal facet labels
+ggplot(most_used_start_stations %>% filter(member_casual == "casual"), 
+       aes(x = "", y = total_rides, fill = start_station_name)) +
+  geom_bar(stat = "identity", width = 1, color = "black") + 
+  facet_wrap(~ride_month, ncol = 1, strip.position = "right") + 
+  coord_flip() +
+  labs(title = "Top 5 Start Stations by Casual Riders Each Month",
+       y = "Date (Year-Month)",
+       x = NULL) +
+  scale_fill_manual(values = pastel_blue_colors) + 
+  theme_minimal() +
+  theme(
+    strip.text.y = element_text(angle = 0), 
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "right"
+  )
+
+### End station plot for casual riders with horizontal facet labels
+ggplot(most_used_end_stations %>% filter(member_casual == "casual"), 
+       aes(x = "", y = total_rides, fill = end_station_name)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  facet_wrap(~ride_month, ncol = 1, strip.position = "right") +
+  coord_flip() +
+  labs(title = "Top 5 End Stations by Casual Riders Each Month",
+       y = "Date (Year-Month)",
+       x = NULL) +
+  scale_fill_manual(values = pastel_blue_colors) +  
+  theme_minimal() +
+  theme(
+    strip.text.y = element_text(angle = 0), 
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "right"
+  )
+
+### Start station plot for members with horizontal facet labels
+ggplot(most_used_start_stations %>% filter(member_casual == "member"), 
+       aes(x = "", y = total_rides, fill = start_station_name)) +
+  geom_bar(stat = "identity", width = 1, color = "black") + 
+  facet_wrap(~ride_month, ncol = 1, strip.position = "right") + 
+  coord_flip() +
+  labs(title = "Top 5 Start Stations by Members Each Month",
+       y = "Date (Year-Month)",
+       x = NULL) +
+  scale_fill_manual(values = pastel_blue_colors) + 
+  theme_minimal() +
+  theme(
+    strip.text.y = element_text(angle = 0), 
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "right"
+  )
+
+### End station plot for members with horizontal facet labels
+ggplot(most_used_end_stations %>% filter(member_casual == "member"), 
+       aes(x = "", y = total_rides, fill = end_station_name)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +  
+  facet_wrap(~ride_month, ncol = 1, strip.position = "right") + 
+  coord_flip() +
+  labs(title = "Top 5 End Stations by Members Each Month",
+       y = "Date (Year-Month)",
+       x = NULL) +
+  scale_fill_manual(values = pastel_blue_colors) + 
+  theme_minimal() +
+  theme(
+    strip.text.y = element_text(angle = 0),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "right"
+  )
+
+
+```
+
+#### Stations as percentage of Total rides in given month
+
+```{r Monthly Stations Percentage}
+###First, calculate the total rides per month for casual and member riders
+total_rides_per_month <- bike_rides_clean %>%
+  group_by(ride_month, member_casual) %>%
+  summarize(total_rides_month = n())
+
+###Calculate percentage for top 5 start stations
+most_used_start_stations_percent <- most_used_start_stations %>%
+  left_join(total_rides_per_month, by = c("ride_month", "member_casual")) %>%
+  mutate(percent_rides = (total_rides / total_rides_month) * 100)
+
+###Calculate percentage for top 5 end stations
+most_used_end_stations_percent <- most_used_end_stations %>%
+  left_join(total_rides_per_month, by = c("ride_month", "member_casual")) %>%
+  mutate(percent_rides = (total_rides / total_rides_month) * 100)
+```
+Plotting the results
+```{r Monthly Station Percentage, echo=FALSE}
+# Define 14 pastel blue colors
+pastel_blue_colors <- c(
+  "#A3C1DA", "#A0C4E1", "#A8D5E2", "#B7E1E5", "#C6E4E7",
+  "#B2D9E4", "#9EC9E5", "#8FB7D3", "#77A6C8", "#3F87A6",
+  "#0A8CC3", "#0091B9", "#0072A8", "#005B88"
+)
+
+
+### Plot the start stations for casual riders with percentages and gaps
+ggplot(most_used_start_stations_percent %>% filter(member_casual == "casual"), 
+       aes(x = percent_rides, y = ride_month, fill = start_station_name)) +
+  geom_bar(stat = "identity", width = 0.7, position = position_stack(), color = "black") +  
+  labs(title = "Percentage of Total Rides from Top 5 Start Stations (Casual Riders)",
+       x = "Percentage of Total Rides",
+       y = "Date (Year-Month)") +
+  scale_x_continuous(labels = scales::percent_format(scale = 1)) +
+  scale_fill_manual(values = pastel_blue_colors) +  # Use the defined pastel blue colors
+  theme_minimal() +
+  theme(
+    strip.text.y = element_text(angle = 0),
+    legend.position = "right"
+  )
+
+### Plot the end stations for casual riders with percentages and gaps
+ggplot(most_used_end_stations_percent %>% filter(member_casual == "casual"), 
+       aes(x = percent_rides, y = ride_month, fill = end_station_name)) +
+  geom_bar(stat = "identity", width = 0.7, position = position_stack(), color = "black") +  
+  labs(title = "Percentage of Total Rides from Top 5 End Stations (Casual Riders)",
+       x = "Percentage of Total Rides",
+       y = "Date (Year-Month)") +
+  scale_x_continuous(labels = scales::percent_format(scale = 1)) + 
+  scale_fill_manual(values = pastel_blue_colors) +  # Use the defined pastel blue colors
+  theme_minimal() +
+  theme(
+    strip.text.y = element_text(angle = 0),
+    legend.position = "right"
+  )
+
+### Plot the start stations for members with percentages and gaps
+ggplot(most_used_start_stations_percent %>% filter(member_casual == "member"), 
+       aes(x = percent_rides, y = ride_month, fill = start_station_name)) +
+  geom_bar(stat = "identity", width = 0.7, position = position_stack(), color = "black") + 
+  labs(title = "Percentage of Total Rides from Top 5 Start Stations (Members)",
+       x = "Percentage of Total Rides",
+       y = "Date (Year-Month)") +
+  scale_x_continuous(labels = scales::percent_format(scale = 1)) + 
+  scale_fill_manual(values = pastel_blue_colors) +  # Use the defined pastel blue colors
+  theme_minimal() +
+  theme(
+    strip.text.y = element_text(angle = 0),
+    legend.position = "right"
+  )
+
+### Plot the end stations for members with percentages and gaps
+ggplot(most_used_end_stations_percent %>% filter(member_casual == "member"), 
+       aes(x = percent_rides, y = ride_month, fill = end_station_name)) +
+  geom_bar(stat = "identity", width = 0.7, position = position_stack(), color = "black") + 
+  labs(title = "Percentage of Total Rides from Top 5 End Stations (Members)",
+       x = "Percentage of Total Rides",
+       y = "Date (Year-Month)") +
+  scale_x_continuous(labels = scales::percent_format(scale = 1)) +  
+  scale_fill_manual(values = pastel_blue_colors) +  # Use the defined pastel blue colors
+  theme_minimal() +
+  theme(
+    strip.text.y = element_text(angle = 0),
+    legend.position = "right"
+  )
+
+
+##Type of ride used by each member type ----------
+###Calculate the count of each rideable_type by member_casual
+bike_usage_by_type <- bike_rides_clean %>%
+  group_by(member_casual, rideable_type) %>%
+  summarize(count = n()) %>%
+  ungroup() %>%
+  group_by(member_casual) %>%
+  mutate(percent = count / sum(count) * 100)
+
+###Define pastel color palette for rideable types
+rideable_color_palette <- c("electric_bike" = "#A2D1E6",  
+                            "docked_bike" = "#DDF0F7",    
+                            "classic_bike" = "#769FCA") 
+
+###Create a function to plot pie charts
+plot_pie_chart <- function(data, user_type) {
+  ggplot(data, aes(x = "", y = percent, fill = rideable_type)) +
+    geom_bar(stat = "identity", width = 1, color = "black") +
+    coord_polar("y") +
+    labs(title = paste("Percentage of Rideable Types -", user_type)) +
+    scale_fill_manual(values = rideable_color_palette) +  # Manual color scale for rideable types
+    theme_void() +
+    theme(legend.position = "right")  # Adjust legend position
+}
+
+###Separate data for members and casual riders
+members_data <- bike_usage_by_type %>% filter(member_casual == "member")
+casual_data <- bike_usage_by_type %>% filter(member_casual == "casual")
+
+###Plot pie chart for members
+plot_pie_chart(members_data, "Members")
+
+###Plot pie chart for casual riders
+plot_pie_chart(casual_data, "Casual Riders")
+
+
+
+```
+
+### Bike type used by each user type
+The following code is used to find the useage of each bike type by the two types of users (member and casual)
+```{r Bike Type by user}
+###Calculate the count of each rideable_type by member_casual
+bike_usage_by_type <- bike_rides_clean %>%
+  group_by(member_casual, rideable_type) %>%
+  summarize(count = n()) %>%
+  ungroup() %>%
+  group_by(member_casual) %>%
+  mutate(percent = count / sum(count) * 100)
+
+###Define pastel color palette for rideable types
+rideable_color_palette <- c("electric_bike" = "#A2D1E6",  
+                            "docked_bike" = "#DDF0F7",    
+                            "classic_bike" = "#769FCA") 
+
+###Create a function to plot pie charts
+plot_pie_chart <- function(data, user_type) {
+  ggplot(data, aes(x = "", y = percent, fill = rideable_type)) +
+    geom_bar(stat = "identity", width = 1, color = "black") +
+    coord_polar("y") +
+    labs(title = paste("Percentage of Rideable Types -", user_type)) +
+    scale_fill_manual(values = rideable_color_palette) +  # Manual color scale for rideable types
+    theme_void() +
+    theme(legend.position = "right")  # Adjust legend position
+}
+
+###Separate data for members and casual riders
+members_data <- bike_usage_by_type %>% filter(member_casual == "member")
+casual_data <- bike_usage_by_type %>% filter(member_casual == "casual")
+
+```
+Plotting the results
+```{r Bike type by user, echo=FALSE}
+###Plot pie chart for members
+plot_pie_chart(members_data, "Members")
+
+###Plot pie chart for casual riders
+plot_pie_chart(casual_data, "Casual Riders")
+
+```
